@@ -38,6 +38,7 @@ PELLET_SPAWN_ATTEMPTS = 10
 # Server and Game Loop
 SERVER_TICK_RATE = 1/30
 GAME_LOOP_DELAY = 1/60
+PLAYER_AREA_OF_INTEREST_RADIUS = 2000 # Max distance to send entity updates to a player
 
 # Leaderboard
 LEADERBOARD_SIZE = 10
