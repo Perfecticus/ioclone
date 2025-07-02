@@ -1,0 +1,81 @@
+body {
+    font-family: Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 0;
+    background-color: #f0f0f0;
+    overflow: hidden;
+    height: 100vh; /* Make body take full viewport height */
+}
+
+h1 {
+    margin-top: 10px;
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+#gameContainer {
+    display: flex;
+    flex-direction: row; /* Align canvas and leaderboard side-by-side */
+    justify-content: center; /* Center items if space allows */
+    align-items: flex-start; /* Align items to the top */
+    gap: 20px; /* Space between canvas and leaderboard */
+    width: 100%;
+}
+
+#gameCanvas {
+    border: 1px solid #000;
+    background-color: #ffffff;
+    /* Dimensions will be set by JavaScript */
+}
+
+#leaderboard {
+    width: 200px; /* Fixed width for leaderboard */
+    padding: 10px;
+    background-color: #f8f8f8;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    font-size: 0.9em;
+    max-height: 500px; /* Or match canvas height approximately */
+    overflow-y: auto;
+}
+
+#leaderboard h2 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    text-align: center;
+    font-size: 1.2em;
+}
+
+#leaderboardList {
+    list-style-type: none;
+    padding-left: 0;
+    margin: 0;
+}
+
+#leaderboardList li {
+    padding: 4px 0;
+    border-bottom: 1px solid #eee;
+}
+
+#leaderboardList li:last-child {
+    border-bottom: none;
+}
+
+#leaderboardList .localPlayer {
+    font-weight: bold;
+    color: #007bff; /* Bootstrap primary blue, or any color */
+}
+
+#statusMessages {
+    margin-top: 10px;
+    font-size: 0.9em;
+    color: #333;
+    text-align: center;
+    width: 100%;
+}
+#connectionStatus, #playerIdDisplay {
+   display: inline-block; /* Keep them on the same line if desired */
+   margin: 0 10px;
+}
