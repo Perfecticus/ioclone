@@ -216,7 +216,14 @@ def update_game_state(dt: float):
     current_time = time.time()
     active_players = [p for p in game_data["players"].values() if p.is_active]
     for p in active_players: p.move_cells(dt)
-    for em_id,em in list(game_data["ejected_masses"].items()): em.update(dt);_=[del game_data["ejected_masses"][em_id]if not em.is_active else None]
+
+    # Update and remove inactive EjectedMass
+    active_ejected_masses = {}
+    for em_id, em_obj in game_data["ejected_masses"].items(): # Iterate directly, will rebuild
+        em_obj.update(dt)
+        if em_obj.is_active:
+            active_ejected_masses[em_id] = em_obj
+    game_data["ejected_masses"] = active_ejected_masses
 
     consumed_pellets=set(); consumed_ejected_mass=set(); consumed_viruses=set()
     player_cells_to_burst = []
