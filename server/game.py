@@ -12,7 +12,7 @@ from .config import (
     VIRUS_MASS, VIRUS_RADIUS_BASE_FACTOR, MAX_VIRUSES, VIRUS_SPLIT_PLAYER_MASS_FACTOR,
     VIRUS_MAX_MASS_BEFORE_SPLIT, VIRUS_FEED_MASS_GAIN,
     VIRUS_CELL_SPLIT_COUNT_MIN, VIRUS_CELL_SPLIT_COUNT_MAX, VIRUS_SPLIT_PROPULSION_FACTOR,
-    PLAYER_AREA_OF_INTEREST_RADIUS # Import for the new helper
+    PLAYER_AREA_OF_INTEREST_RADIUS
 )
 
 class Player:
@@ -59,7 +59,7 @@ class Player:
         if not self.cells: return MAP_HEIGHT / 2
         return sum(c['y'] * c['mass'] for c in self.cells) / self.total_mass if self.total_mass > 0 else (self.cells[0]['y'] if self.cells else MAP_HEIGHT / 2)
 
-    def get_state(self): # This is the full state for the player, used for self or when others see them.
+    def get_state(self):
         return { "id": self.id, "name": self.name,
             "cells": [{"id": c['id'], "x": c['x'], "y": c['y'], "mass": c['mass'], "radius": c['radius']} for c in self.cells],
             "total_mass": self.total_mass, "view_x": self.view_x, "view_y": self.view_y }
@@ -210,16 +210,18 @@ def remove_player(player_id: str):
 
 def handle_player_input(player_id: str, target_x: float, target_y: float, action: str = None):
     player=game_data["players"].get(player_id)
-    if player and player.is_active: player.update_target(target_x,target_y);_=[player.split()if action=="split"else player.eject_mass()if action=="eject"else None]
+    if player and player.is_active:
+        player.update_target(target_x,target_y) # Always update target based on mouse
+        if action == "split": player.split()
+        elif action == "eject": player.eject_mass()
 
 def update_game_state(dt: float):
     current_time = time.time()
     active_players = [p for p in game_data["players"].values() if p.is_active]
     for p in active_players: p.move_cells(dt)
 
-    # Update and remove inactive EjectedMass
     active_ejected_masses = {}
-    for em_id, em_obj in game_data["ejected_masses"].items(): # Iterate directly, will rebuild
+    for em_id, em_obj in game_data["ejected_masses"].items():
         em_obj.update(dt)
         if em_obj.is_active:
             active_ejected_masses[em_id] = em_obj
@@ -249,22 +251,40 @@ def update_game_state(dt: float):
                         break
             if cell['id'] in [c_id for p_id_burst,c_id in player_cells_to_burst if p_id_burst == player.id]: continue
 
-    for p_id,c_id in player_cells_to_burst: p=game_data.get(p_id); _=[p.burst_cell(c_id) if p and p.is_active else None]
-    for p_id in consumed_pellets: _=[del game_data["pellets"][p_id],spawn_pellet()] if p_id in game_data["pellets"] else None
-    for em_id in consumed_ejected_mass: _=[del game_data["ejected_masses"][em_id]] if em_id in game_data["ejected_masses"] else None
-    for v_id in consumed_viruses: _=[del game_data["viruses"][v_id]] if v_id in game_data["viruses"] else None
+    for p_id,c_id in player_cells_to_burst:
+        p=game_data.get(p_id)
+        if p and p.is_active : p.burst_cell(c_id)
+
+    for p_id in consumed_pellets:
+        if p_id in game_data["pellets"]:
+            del game_data["pellets"][p_id]
+            spawn_pellet()
+
+    # This loop for consumed_ejected_mass handles masses eaten by players.
+    # Masses eaten by viruses are handled below in the virus feeding section.
+    for em_id in consumed_ejected_mass:
+        if em_id in game_data["ejected_masses"]:
+            del game_data["ejected_masses"][em_id]
+
+    for v_id in consumed_viruses:
+        if v_id in game_data["viruses"]:
+            del game_data["viruses"][v_id]
 
     fed_viruses_to_split = {}
+    # Create a new set for masses consumed by viruses in this section
+    ejected_mass_consumed_by_viruses = set()
     for em_id, em in list(game_data["ejected_masses"].items()):
+        # Skip if already processed (e.g. eaten by a player earlier in the tick)
         if em_id in consumed_ejected_mass: continue
         for v_id, virus in list(game_data["viruses"].items()):
             if math.hypot(em.x - virus.x, em.y - virus.y) < virus.radius:
                 virus.mass += VIRUS_FEED_MASS_GAIN; virus.update_radius()
-                consumed_ejected_mass.add(em_id)
+                ejected_mass_consumed_by_viruses.add(em_id)
                 if virus.mass > VIRUS_MAX_MASS_BEFORE_SPLIT:
                     fed_viruses_to_split[v_id] = math.atan2(em.y - virus.y, em.x - virus.x)
                 break
-    for em_id in consumed_ejected_mass:
+    # Now remove masses consumed by viruses
+    for em_id in ejected_mass_consumed_by_viruses:
         if em_id in game_data["ejected_masses"]: del game_data["ejected_masses"][em_id]
 
     for v_id, angle in fed_viruses_to_split.items():
@@ -315,17 +335,20 @@ def update_game_state(dt: float):
                     if smaller_cell == cell_i: break
 
     for pid,c_ids in cells_to_remove_map.items():
-        p=game_data.get(pid)
+        p=game_data["players"].get(pid)
         if p:
             p.cells = [c for c in p.cells if c['id'] not in c_ids]
             if not p.cells: p.is_active = False
 
-    final_remove_pids = []
-    for pid, p_obj in list(game_data["players"].items()):
-        if not p_obj.is_active or not p_obj.cells:
-            final_remove_pids.append(pid)
-    for pid in final_remove_pids:
-        if pid in game_data["players"]: del game_data["players"][pid]
+    final_remove_player_ids = []
+    for player_id, player_obj in list(game_data["players"].items()):
+        if not player_obj.is_active or not player_obj.cells:
+            final_remove_player_ids.append(player_id)
+
+    for player_id in final_remove_player_ids:
+        if player_id in game_data["players"]:
+            del game_data["players"][player_id]
+            # print(f"Final removal of player: {player_id}")
 
     if len(game_data["pellets"])<MAX_PELLETS*0.75 and random.random()<0.05:spawn_pellet()
 
@@ -334,6 +357,45 @@ def update_game_state(dt: float):
             "pellets":[p.get_state()for p in game_data["pellets"].values()],
             "ejected_masses":[em.get_state()for em in game_data["ejected_masses"].values()if em.is_active],
             "viruses": [v.get_state() for v in game_data["viruses"].values() if v.is_active]}
+
+def get_player_specific_view_state(target_player_id: str, aoi_radius: float) -> dict:
+    player_a = game_data["players"].get(target_player_id)
+    if not player_a or not player_a.is_active or not player_a.cells:
+        return { "players": [], "pellets": [], "ejected_masses": [], "viruses": [] }
+
+    player_a_pos_x = player_a.view_x
+    player_a_pos_y = player_a.view_y
+    aoi_radius_sq = aoi_radius ** 2
+
+    visible_players = []
+    for p_id, p_obj in game_data["players"].items():
+        if p_obj.is_active and p_obj.cells:
+            if p_id == target_player_id:
+                visible_players.append(p_obj.get_state())
+            else:
+                dist_sq = (player_a_pos_x - p_obj.view_x)**2 + (player_a_pos_y - p_obj.view_y)**2
+                if dist_sq < aoi_radius_sq:
+                    visible_players.append(p_obj.get_state())
+
+    visible_pellets = [
+        p.get_state() for p in game_data["pellets"].values()
+        if (player_a_pos_x - p.x)**2 + (player_a_pos_y - p.y)**2 < aoi_radius_sq
+    ]
+    visible_ejected_masses = [
+        em.get_state() for em in game_data["ejected_masses"].values() if em.is_active and \
+        (player_a_pos_x - em.x)**2 + (player_a_pos_y - em.y)**2 < aoi_radius_sq
+    ]
+    visible_viruses = [
+        v.get_state() for v in game_data["viruses"].values() if v.is_active and \
+        (player_a_pos_x - v.x)**2 + (player_a_pos_y - v.y)**2 < aoi_radius_sq
+    ]
+
+    return {
+        "players": visible_players,
+        "pellets": visible_pellets,
+        "ejected_masses": visible_ejected_masses,
+        "viruses": visible_viruses
+    }
 
 def get_leaderboard(size: int):
     active_players = [p for p in game_data["players"].values() if p.is_active and p.cells]
@@ -397,5 +459,7 @@ if __name__ == '__main__':
             if not v_state_feed : break
 
     print("Test complete.")
+
+[end of server/game.py]
 
 [end of server/game.py]
