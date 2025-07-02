@@ -11,18 +11,18 @@ from .config import (
     EJECTED_MASS_RADIUS, EJECTED_MASS_LIFESPAN, EJECTED_MASS_FRICTION,
     VIRUS_MASS, VIRUS_RADIUS_BASE_FACTOR, MAX_VIRUSES, VIRUS_SPLIT_PLAYER_MASS_FACTOR,
     VIRUS_MAX_MASS_BEFORE_SPLIT, VIRUS_FEED_MASS_GAIN,
-    VIRUS_CELL_SPLIT_COUNT_MIN, VIRUS_CELL_SPLIT_COUNT_MAX, VIRUS_SPLIT_PROPULSION_FACTOR
+    VIRUS_CELL_SPLIT_COUNT_MIN, VIRUS_CELL_SPLIT_COUNT_MAX, VIRUS_SPLIT_PROPULSION_FACTOR,
+    PLAYER_AREA_OF_INTEREST_RADIUS # Import for the new helper
 )
 
 class Player:
     def __init__(self, id: str, name: str, x: float, y: float, initial_mass: float = PLAYER_START_MASS):
         self.id = id; self.name = name if name else f"{PLAYER_DEFAULT_NAME_PREFIX}_{id[:4]}"
-        self.cells = [self._create_initial_cell(x, y, initial_mass)] # Use specific method for initial cell
+        self.cells = [self._create_initial_cell(x, y, initial_mass)]
         self.target_x = x; self.target_y = y
         self.is_active = True
 
     def _create_cell_base(self, x: float, y: float, mass: float, target_x: float = None, target_y: float = None) -> dict:
-        """Base for creating any cell, ensure radius is calculated."""
         current_time = time.time()
         cell_id = str(uuid.uuid4())
         radius = Player.get_cell_radius(mass)
@@ -31,23 +31,19 @@ class Player:
             'target_x': target_x if target_x is not None else x,
             'target_y': target_y if target_y is not None else y,
             'creation_time': current_time,
-            'can_merge_after_timestamp': current_time # Default, overridden by specific creation methods
+            'can_merge_after_timestamp': current_time
         }
 
     def _create_cell(self, x: float, y: float, mass: float, target_x: float = None, target_y: float = None) -> dict:
-        """Creates a new cell, typically from split or burst, with merge cooldown."""
         cell = self._create_cell_base(x, y, mass, target_x, target_y)
         cell['can_merge_after_timestamp'] = time.time() + CELL_MERGE_TIME
         return cell
 
     def _create_initial_cell(self, x: float, y: float, mass: float) -> dict:
-        """Creates the first cell for a player, no initial merge cooldown with self (as no other self cells exist)."""
         cell = self._create_cell_base(x, y, mass)
-        # cell['can_merge_after_timestamp'] = time.time() # No practical effect initially
         return cell
 
     def _update_cell_radius(self, cell: dict):
-        """Helper to update a cell's radius based on its mass."""
         cell['radius'] = Player.get_cell_radius(cell['mass'])
 
     @property
@@ -63,9 +59,9 @@ class Player:
         if not self.cells: return MAP_HEIGHT / 2
         return sum(c['y'] * c['mass'] for c in self.cells) / self.total_mass if self.total_mass > 0 else (self.cells[0]['y'] if self.cells else MAP_HEIGHT / 2)
 
-    def get_state(self):
+    def get_state(self): # This is the full state for the player, used for self or when others see them.
         return { "id": self.id, "name": self.name,
-            "cells": [{"id": c['id'], "x": c['x'], "y": c['y'], "mass": c['mass'], "radius": c['radius']} for c in self.cells], # Radius is now part of cell dict
+            "cells": [{"id": c['id'], "x": c['x'], "y": c['y'], "mass": c['mass'], "radius": c['radius']} for c in self.cells],
             "total_mass": self.total_mass, "view_x": self.view_x, "view_y": self.view_y }
 
     def update_target(self, target_x: float, target_y: float):
@@ -85,7 +81,6 @@ class Player:
                 move_dist = min(speed * dt, dist_to_target)
                 cell['x'] += math.cos(angle) * move_dist
                 cell['y'] += math.sin(angle) * move_dist
-            # cell_r already stored in cell['radius'], used for boundary clamping
             cell['x'] = max(cell['radius'], min(cell['x'], MAP_WIDTH - cell['radius']))
             cell['y'] = max(cell['radius'], min(cell['y'], MAP_HEIGHT - cell['radius']))
 
@@ -93,61 +88,49 @@ class Player:
         if len(self.cells) >= PLAYER_MAX_CELLS or not self.cells: return False
         cell_to_split = max(self.cells, key=lambda c: c['mass'])
         if cell_to_split['mass'] < PLAYER_MIN_MASS_TO_SPLIT: return False
-
         original_mass = cell_to_split['mass']
         new_mass = original_mass / 2
         cell_to_split['mass'] = new_mass
-        self._update_cell_radius(cell_to_split) # Update radius after mass change
-
+        self._update_cell_radius(cell_to_split)
         angle = math.atan2(self.target_y - cell_to_split['y'], self.target_x - cell_to_split['x'])
-        new_cell = self._create_cell(cell_to_split['x'], cell_to_split['y'], new_mass) # _create_cell handles radius
-
+        new_cell = self._create_cell(cell_to_split['x'], cell_to_split['y'], new_mass)
         propulsion = CELL_SPLIT_PROPULSION
         new_cell['x'] += math.cos(angle) * (propulsion/2); new_cell['y'] += math.sin(angle) * (propulsion/2)
         new_cell['target_x'] = cell_to_split['x'] + math.cos(angle) * propulsion
         new_cell['target_y'] = cell_to_split['y'] + math.sin(angle) * propulsion
-
         cell_to_split['target_x'] = cell_to_split['x'] - math.cos(angle) * (propulsion/2)
         cell_to_split['target_y'] = cell_to_split['y'] - math.sin(angle) * (propulsion/2)
-
         self.cells.append(new_cell)
         return True
 
     def burst_cell(self, cell_id_to_burst: str):
         cell_idx = -1; burst_cell_obj = None
         for i, c in enumerate(self.cells):
-            if c['id'] == cell_id_to_burst:
-                burst_cell_obj = c; cell_idx = i; break
+            if c['id'] == cell_id_to_burst: burst_cell_obj = c; cell_idx = i; break
         if cell_idx == -1 or burst_cell_obj is None: return False
-
-        self.cells.pop(cell_idx) # Remove the cell that burst
+        self.cells.pop(cell_idx)
         original_mass = burst_cell_obj['mass']
         num_pieces = random.randint(VIRUS_CELL_SPLIT_COUNT_MIN, VIRUS_CELL_SPLIT_COUNT_MAX)
         if num_pieces == 0: return True
-
         mass_per_piece = original_mass / num_pieces
         if mass_per_piece < 1: mass_per_piece = 1
-
         if len(self.cells) + num_pieces > PLAYER_MAX_CELLS:
             num_pieces = PLAYER_MAX_CELLS - len(self.cells)
             if num_pieces <= 0:
                 if self.cells: self.cells[0]['mass'] += original_mass; self._update_cell_radius(self.cells[0])
                 return True
             mass_per_piece = original_mass / num_pieces
-
         base_angle = random.uniform(0, 2 * math.pi)
         angle_increment = (2 * math.pi) / num_pieces
-
         for i in range(num_pieces):
             angle = base_angle + i * angle_increment
-            new_c = self._create_cell(burst_cell_obj['x'], burst_cell_obj['y'], mass_per_piece) # Handles radius
+            new_c = self._create_cell(burst_cell_obj['x'], burst_cell_obj['y'], mass_per_piece)
             propulsion = CELL_SPLIT_PROPULSION * 0.75
-            new_c['x'] += math.cos(angle) * (new_c['radius'] + 1) # Use new cell's radius
+            new_c['x'] += math.cos(angle) * (new_c['radius'] + 1)
             new_c['y'] += math.sin(angle) * (new_c['radius'] + 1)
             new_c['target_x'] = burst_cell_obj['x'] + math.cos(angle) * propulsion
             new_c['target_y'] = burst_cell_obj['y'] + math.sin(angle) * propulsion
             self.cells.append(new_c)
-
         if not self.cells: self.is_active = False
         return True
 
@@ -156,12 +139,9 @@ class Player:
         cell_to_eject_from = max(self.cells, key=lambda c: c['mass'])
         if cell_to_eject_from['mass'] < MASS_EJECT_MIN_MASS or \
            cell_to_eject_from['mass'] - MASS_EJECT_COST < 1: return False
-
         cell_to_eject_from['mass'] -= MASS_EJECT_COST
-        self._update_cell_radius(cell_to_eject_from) # Update radius after mass change
-
+        self._update_cell_radius(cell_to_eject_from)
         angle = math.atan2(self.target_y - cell_to_eject_from['y'], self.target_x - cell_to_eject_from['x'])
-        # Use current (updated) radius of the ejecting cell
         sx = cell_to_eject_from['x'] + math.cos(angle) * (cell_to_eject_from['radius'] + EJECTED_MASS_RADIUS + 2)
         sy = cell_to_eject_from['y'] + math.sin(angle) * (cell_to_eject_from['radius'] + EJECTED_MASS_RADIUS + 2)
         em = EjectedMass(x=sx, y=sy, angle=angle, ejected_by_player_id=self.id)
@@ -189,14 +169,13 @@ class EjectedMass:
 class Virus:
     def __init__(self, x: float, y: float, mass: float = VIRUS_MASS):
         self.id = str(uuid.uuid4()); self.x = x; self.y = y; self.mass = mass
-        self.radius = Virus.get_virus_radius(self.mass) # Use static method
+        self.radius = Virus.get_virus_radius(self.mass)
         self.is_active = True
     def get_state(self): return {"id":self.id,"x":self.x,"y":self.y,"mass":self.mass,"radius":self.radius}
     def update_radius(self): self.radius = Virus.get_virus_radius(self.mass)
     @staticmethod
     def get_virus_radius(mass: float) -> float:
         return math.sqrt(max(1, mass) / math.pi) * VIRUS_RADIUS_BASE_FACTOR
-
 
 game_data = {"players": {}, "pellets": {}, "ejected_masses": {}, "viruses": {}}
 
@@ -223,7 +202,6 @@ def spawn_virus(x=None, y=None):
 def add_player(player_id: str, name: str):
     sx,sy=get_random_position(Player.get_cell_radius(PLAYER_START_MASS))
     p=Player(id=player_id,name=name,x=sx,y=sy,initial_mass=PLAYER_START_MASS)
-    # _create_initial_cell is now called within Player.__init__
     game_data["players"][player_id]=p
     return p
 
@@ -246,7 +224,6 @@ def update_game_state(dt: float):
     for player in active_players:
         for cell_idx, cell in enumerate(list(player.cells)):
             if not cell: continue
-            # cell_r is already in cell['radius']
             for p_id,pellet in list(game_data["pellets"].items()):
                 if p_id in consumed_pellets:continue
                 if math.hypot(cell['x']-pellet.x,cell['y']-pellet.y)**2 < cell['radius']**2:
@@ -299,7 +276,6 @@ def update_game_state(dt: float):
         for j in range(i+1,len(player_ids_active)):
             p2=game_data[player_ids_active[j]]
             for c1 in list(p1.cells):
-                # c1_r is already in c1['radius']
                 for c2 in list(p2.cells):
                     if c2['id']in cells_to_remove_map.get(p2.id,[]):continue
                     dist_sq=math.hypot(c1['x']-c2['x'],c1['y']-c2['y'])**2
@@ -316,18 +292,16 @@ def update_game_state(dt: float):
             cell_i = player_cells_copy[i_idx]
             if not cell_i or cell_i['id'] in cells_to_remove_map.get(p.id, []): continue
             if current_time < cell_i['can_merge_after_timestamp']: continue
-            # cell_i_radius is in cell_i['radius']
             for j_idx in range(i_idx + 1, len(player_cells_copy)):
                 if j_idx in merged_indices_this_tick: continue
                 cell_j = player_cells_copy[j_idx]
                 if not cell_j or cell_j['id'] in cells_to_remove_map.get(p.id, []): continue
                 if current_time < cell_j['can_merge_after_timestamp']: continue
-                # cell_j_radius is in cell_j['radius']
                 distance_sq = math.hypot(cell_i['x'] - cell_j['x'], cell_i['y'] - cell_j['y'])**2
                 if distance_sq < (cell_i['radius'] + cell_j['radius'])**2 * 0.25:
                     larger_cell, smaller_cell, smaller_idx = (cell_i, cell_j, j_idx) if cell_i['mass'] >= cell_j['mass'] else (cell_j, cell_i, i_idx)
                     larger_cell['mass'] += smaller_cell['mass']
-                    p._update_cell_radius(larger_cell) # Update radius of the merged cell
+                    p._update_cell_radius(larger_cell)
                     cells_to_remove_map.setdefault(p.id, []).append(smaller_cell['id'])
                     merged_indices_this_tick.add(smaller_idx)
                     larger_cell['can_merge_after_timestamp'] = current_time + CELL_MERGE_TIME
@@ -336,12 +310,11 @@ def update_game_state(dt: float):
     for pid,c_ids in cells_to_remove_map.items():
         p=game_data.get(pid)
         if p:
-            # Need to be careful if c_ids contains IDs of cells that were already removed (e.g. by bursting)
             p.cells = [c for c in p.cells if c['id'] not in c_ids]
             if not p.cells: p.is_active = False
 
     final_remove_pids = []
-    for pid, p_obj in list(game_data["players"].items()): # Iterate over .items() for safe deletion
+    for pid, p_obj in list(game_data["players"].items()):
         if not p_obj.is_active or not p_obj.cells:
             final_remove_pids.append(pid)
     for pid in final_remove_pids:
@@ -417,3 +390,5 @@ if __name__ == '__main__':
             if not v_state_feed : break
 
     print("Test complete.")
+
+[end of server/game.py]
