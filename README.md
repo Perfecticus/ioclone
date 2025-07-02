@@ -12,6 +12,7 @@ A multiplayer browser game inspired by Agar.io, built with Python (FastAPI) for 
     -   Feeding a virus with ejected mass will cause it to grow. If it grows large enough, it will shoot out a new virus in the direction the mass came from.
 -   **Leaderboard:** Displays the top players ranked by their total mass.
 -   **Smooth Gameplay:** Client-side interpolation for smoother visual movement of cells.
+-   **Optimized Network Updates:** Utilizes Area of Interest (AoI) filtering, where the server sends clients only data relevant to their immediate vicinity, significantly reducing bandwidth and improving scalability.
 
 ## Tech Stack
 -   **Backend:**
@@ -73,9 +74,10 @@ A multiplayer browser game inspired by Agar.io, built with Python (FastAPI) for 
 -   The server is authoritative for all game logic and state.
 -   The client primarily handles rendering and sending user inputs.
 -   Game configuration (speeds, masses, limits) can be found in `server/config.py`.
+-   The server employs Area of Interest (AoI) filtering (`PLAYER_AREA_OF_INTEREST_RADIUS` in `server/config.py`) to send tailored game state updates to each client, reducing the data load for entities outside a player's vicinity.
 
 ## Future Enhancements (Potential)
--   More advanced server-side optimizations (e.g., quadtrees for collision detection).
+-   More advanced server-side optimizations (e.g., quadtrees for collision detection for entity filtering).
 -   Client-side prediction for even smoother local player movement.
 -   Persistent user accounts and scoring.
 -   Different game modes (e.g., Teams, Experimental).
