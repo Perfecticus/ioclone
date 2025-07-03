@@ -49,4 +49,7 @@ PLAYER_BASE_SPEED = 220
 WEBSOCKET_MAX_SIZE = None
 WEBSOCKET_MAX_QUEUE = None
 ID_LENGTH = 6
+
+# Logging
 LOG_LEVEL = "INFO"
+DEBUG_GAME_LOGIC = False # Set to True for detailed game logic print statements in server/game.py
