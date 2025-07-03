@@ -12,7 +12,7 @@ from .config import (
     VIRUS_MASS, VIRUS_RADIUS_BASE_FACTOR, MAX_VIRUSES, VIRUS_SPLIT_PLAYER_MASS_FACTOR,
     VIRUS_MAX_MASS_BEFORE_SPLIT, VIRUS_FEED_MASS_GAIN,
     VIRUS_CELL_SPLIT_COUNT_MIN, VIRUS_CELL_SPLIT_COUNT_MAX, VIRUS_SPLIT_PROPULSION_FACTOR,
-    PLAYER_AREA_OF_INTEREST_RADIUS
+    PLAYER_AREA_OF_INTEREST_RADIUS, DEBUG_GAME_LOGIC # Import the flag
 )
 
 class Player:
@@ -65,20 +65,27 @@ class Player:
             "total_mass": self.total_mass, "view_x": self.view_x, "view_y": self.view_y }
 
     def update_target(self, target_x: float, target_y: float):
+        if DEBUG_GAME_LOGIC: print(f"[DEBUG] Player {self.id} update_target CALLED. Player main target before: ({self.target_x}, {self.target_y}) Input target: ({target_x}, {target_y})")
         if target_x is not None: self.target_x = target_x
         if target_y is not None: self.target_y = target_y
+        if DEBUG_GAME_LOGIC: print(f"[DEBUG] Player {self.id} main target AFTER: ({self.target_x}, {self.target_y})")
         for cell in self.cells:
             if target_x is not None: cell['target_x'] = target_x
             if target_y is not None: cell['target_y'] = target_y
+            if DEBUG_GAME_LOGIC: print(f"  [DEBUG] Cell {cell['id']} target updated to: ({cell['target_x']}, {cell['target_y']})")
 
     def move_cells(self, dt: float):
         for cell in self.cells:
+            if DEBUG_GAME_LOGIC: print(f"[DEBUG] move_cells for cell {cell['id']} of player {self.id}: current_pos=({cell['x']:.1f},{cell['y']:.1f}), cell_target=({cell['target_x']:.1f},{cell['target_y']:.1f}), player_target=({self.target_x:.1f},{self.target_y:.1f}), mass={cell['mass']:.1f}, dt={dt:.4f})")
             speed_reduction = max(1, (cell['mass'] / PLAYER_START_MASS)**0.4)
             speed = PLAYER_BASE_SPEED / speed_reduction
             angle = math.atan2(cell['target_y'] - cell['y'], cell['target_x'] - cell['x'])
             dist_to_target = math.hypot(cell['target_x'] - cell['x'], cell['target_y'] - cell['y'])
+            if DEBUG_GAME_LOGIC: print(f"    [DEBUG] Cell {cell['id']}: speed={speed:.2f}, dist_to_target={dist_to_target:.2f}")
+
             if dist_to_target > 1:
                 move_dist = min(speed * dt, dist_to_target)
+                if DEBUG_GAME_LOGIC: print(f"    [DEBUG] Cell {cell['id']}: move_dist={move_dist:.2f}, new_pos_calc_delta=({math.cos(angle) * move_dist:.1f},{math.sin(angle) * move_dist:.1f})")
                 cell['x'] += math.cos(angle) * move_dist
                 cell['y'] += math.sin(angle) * move_dist
             cell['x'] = max(cell['radius'], min(cell['x'], MAP_WIDTH - cell['radius']))
@@ -185,7 +192,9 @@ def initialize_game():
     game_data["players"].clear(); game_data["pellets"].clear(); game_data["ejected_masses"].clear(); game_data["viruses"].clear()
     for _ in range(MAX_PELLETS // 2): spawn_pellet()
     for _ in range(MAX_VIRUSES // 2): spawn_virus()
-    print(f"Game initialized. Pellets: {len(game_data['pellets'])}, Viruses: {len(game_data['viruses'])}")
+    if DEBUG_GAME_LOGIC: print(f"Game initialized. Pellets: {len(game_data['pellets'])}, Viruses: {len(game_data['viruses'])}")
+    else: print(f"Game initialized.")
+
 
 def spawn_pellet():
     if len(game_data["pellets"]) < MAX_PELLETS: pid=str(uuid.uuid4()); x,y=get_random_position(PELLET_RADIUS); game_data["pellets"][pid]=Pellet(id=pid,x=x,y=y); return game_data["pellets"][pid]
@@ -211,7 +220,8 @@ def remove_player(player_id: str):
 def handle_player_input(player_id: str, target_x: float, target_y: float, action: str = None):
     player=game_data["players"].get(player_id)
     if player and player.is_active:
-        player.update_target(target_x,target_y) # Always update target based on mouse
+        if DEBUG_GAME_LOGIC: print(f"[DEBUG] handle_player_input for {player_id}. Target: ({target_x}, {target_y}), Action: {action}")
+        player.update_target(target_x,target_y)
         if action == "split": player.split()
         elif action == "eject": player.eject_mass()
 
@@ -260,30 +270,25 @@ def update_game_state(dt: float):
             del game_data["pellets"][p_id]
             spawn_pellet()
 
-    # This loop for consumed_ejected_mass handles masses eaten by players.
-    # Masses eaten by viruses are handled below in the virus feeding section.
-    for em_id in consumed_ejected_mass:
+    for em_id in consumed_ejected_mass: # Ejected mass consumed by players
         if em_id in game_data["ejected_masses"]:
             del game_data["ejected_masses"][em_id]
 
-    for v_id in consumed_viruses:
+    for v_id in consumed_viruses: # Viruses consumed by players
         if v_id in game_data["viruses"]:
             del game_data["viruses"][v_id]
 
     fed_viruses_to_split = {}
-    # Create a new set for masses consumed by viruses in this section
     ejected_mass_consumed_by_viruses = set()
     for em_id, em in list(game_data["ejected_masses"].items()):
-        # Skip if already processed (e.g. eaten by a player earlier in the tick)
-        if em_id in consumed_ejected_mass: continue
+        if em_id in consumed_ejected_mass: continue # Already handled if eaten by player
         for v_id, virus in list(game_data["viruses"].items()):
-            if math.hypot(em.x - virus.x, em.y - virus.y) < virus.radius:
+            if math.hypot(em.x - virus.x, em.y - virus.y) < virus.radius: # Simple check: center of mass inside virus
                 virus.mass += VIRUS_FEED_MASS_GAIN; virus.update_radius()
                 ejected_mass_consumed_by_viruses.add(em_id)
                 if virus.mass > VIRUS_MAX_MASS_BEFORE_SPLIT:
                     fed_viruses_to_split[v_id] = math.atan2(em.y - virus.y, em.x - virus.x)
                 break
-    # Now remove masses consumed by viruses
     for em_id in ejected_mass_consumed_by_viruses:
         if em_id in game_data["ejected_masses"]: del game_data["ejected_masses"][em_id]
 
@@ -291,26 +296,35 @@ def update_game_state(dt: float):
         virus = game_data["viruses"].get(v_id)
         if virus:
             virus.mass = VIRUS_MASS; virus.update_radius()
-            propel_dist = virus.radius * VIRUS_SPLIT_PROPULSION_FACTOR
+            propel_dist = virus.radius * VIRUS_SPLIT_PROPULSION_FACTOR # Use existing radius before reset for propulsion base
             nx = virus.x + math.cos(angle) * propel_dist
             ny = virus.y + math.sin(angle) * propel_dist
             spawn_virus(nx, ny)
 
     cells_to_remove_map={pid:[]for pid in[pid for pid,p in game_data["players"].items()if p.is_active]}
-    player_ids_active = [pid for pid,p in game_data["players"].items() if p.is_active]
+    player_ids_active = [pid for pid,p in game_data["players"].items() if p.is_active] # Re-fetch in case players became inactive
+
     for i in range(len(player_ids_active)):
-        p1=game_data[player_ids_active[i]]
+        p1_id = player_ids_active[i]
+        p1 = game_data["players"].get(p1_id)
+        if not p1 or not p1.is_active : continue # Player might have been deactivated by bursting
+
         for j in range(i+1,len(player_ids_active)):
-            p2=game_data[player_ids_active[j]]
-            for c1 in list(p1.cells):
+            p2_id = player_ids_active[j]
+            p2 = game_data["players"].get(p2_id)
+            if not p2 or not p2.is_active : continue
+
+            for c1 in list(p1.cells): # Iterate copies in case of modification
+                if c1['id'] in cells_to_remove_map.get(p1.id, []): continue
                 for c2 in list(p2.cells):
-                    if c2['id']in cells_to_remove_map.get(p2.id,[]):continue
+                    if c2['id'] in cells_to_remove_map.get(p2.id,[]):continue
                     dist_sq=math.hypot(c1['x']-c2['x'],c1['y']-c2['y'])**2
                     if c1['mass']>c2['mass']*PLAYER_EAT_MASS_FACTOR and dist_sq<c1['radius']**2-(c2['radius']**2/2):
                         c1['mass']+=c2['mass']; p1._update_cell_radius(c1); cells_to_remove_map.setdefault(p2.id,[]).append(c2['id'])
                     elif c2['mass']>c1['mass']*PLAYER_EAT_MASS_FACTOR and dist_sq<c2['radius']**2-(c1['radius']**2/2):
                         c2['mass']+=c1['mass']; p2._update_cell_radius(c2); cells_to_remove_map.setdefault(p1.id,[]).append(c1['id']);break
 
+    active_players = [p for p in game_data["players"].values() if p.is_active] # Refresh active players list
     for p in active_players:
         merged_indices_this_tick = set()
         player_cells_copy = list(p.cells)
@@ -348,7 +362,7 @@ def update_game_state(dt: float):
     for player_id in final_remove_player_ids:
         if player_id in game_data["players"]:
             del game_data["players"][player_id]
-            # print(f"Final removal of player: {player_id}")
+            if DEBUG_GAME_LOGIC: print(f"Final removal of player: {player_id}")
 
     if len(game_data["pellets"])<MAX_PELLETS*0.75 and random.random()<0.05:spawn_pellet()
 
@@ -406,6 +420,10 @@ def get_leaderboard(size: int):
     return leaderboard
 
 if __name__ == '__main__':
+    # Toggle debug mode for local testing if needed
+    # DEBUG_GAME_LOGIC = True
+    # print(f"DEBUG_GAME_LOGIC is set to: {DEBUG_GAME_LOGIC}")
+
     initialize_game()
     p_id = "test_player_virus"
     add_player(p_id, "VirusVictim", initial_mass=VIRUS_MASS * 2)
@@ -416,25 +434,32 @@ if __name__ == '__main__':
     virus = game_data["viruses"][virus_key]
 
     player.update_target(virus.x, virus.y)
-    print(f"Player {player.name} (Mass: {player.total_mass}) targeting Virus {virus.id} (Mass: {virus.mass}) at ({virus.x:.0f},{virus.y:.0f})")
-    print(f"Player cell at ({player.cells[0]['x']:.0f},{player.cells[0]['y']:.0f}) with radius {player.cells[0]['radius']:.1f}")
+    if DEBUG_GAME_LOGIC:
+        print(f"Player {player.name} (Mass: {player.total_mass}) targeting Virus {virus.id} (Mass: {virus.mass}) at ({virus.x:.0f},{virus.y:.0f})")
+        print(f"Player cell at ({player.cells[0]['x']:.0f},{player.cells[0]['y']:.0f}) with radius {player.cells[0]['radius']:.1f}")
 
     for i in range(120):
         state = update_game_state(GAME_LOOP_DELAY)
         p_state = next((p_s for p_s in state["players"] if p_s["id"] == p_id), None)
         v_state = next((v_s for v_s in state["viruses"] if v_s["id"] == virus_key), None)
 
-        if i % 30 == 0:
+        if i % 30 == 0 and DEBUG_GAME_LOGIC:
             if p_state: print(f"Tick {i}: Player cells: {len(p_state['cells'])}, Total Mass: {p_state['total_mass']:.0f}")
             else: print(f"Tick {i}: Player GONE"); break
             if v_state: print(f"  Virus Mass: {v_state['mass']:.0f}, Radius: {v_state['radius']:.1f}")
             else: print(f"  Virus {virus_key} GONE (consumed/split)")
 
-        if p_state and len(p_state['cells']) > 1: print(f"Player burst by virus at tick {i}!"); break
-        if not v_state and p_state and len(p_state['cells'])==1 : print(f"Virus consumed by player at tick {i}"); break
-        if not v_state and not p_state: print("Both player and virus gone?"); break
+        if p_state and len(p_state['cells']) > 1:
+            if DEBUG_GAME_LOGIC: print(f"Player burst by virus at tick {i}!")
+            break
+        if not v_state and p_state and len(p_state['cells'])==1 :
+            if DEBUG_GAME_LOGIC: print(f"Virus consumed by player at tick {i}")
+            break
+        if not v_state and not p_state:
+            if DEBUG_GAME_LOGIC: print("Both player and virus gone?")
+            break
 
-    if game_data["viruses"]:
+    if game_data["viruses"] and DEBUG_GAME_LOGIC:
         virus_key_feed = list(game_data["viruses"].keys())[0]
         virus_to_feed = game_data["viruses"][virus_key_feed]
         print(f"\nFeeding virus {virus_to_feed.id} at ({virus_to_feed.x:.0f}, {virus_to_feed.y:.0f}), initial mass: {virus_to_feed.mass}")
@@ -459,7 +484,3 @@ if __name__ == '__main__':
             if not v_state_feed : break
 
     print("Test complete.")
-
-[end of server/game.py]
-
-[end of server/game.py]
