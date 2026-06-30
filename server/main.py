@@ -7,11 +7,18 @@ import json
 import time
 import math # For distance calculation
 
-from .config import (
-    GAME_LOOP_DELAY, PLAYER_DEFAULT_NAME_PREFIX, SERVER_TICK_RATE,
-    LEADERBOARD_UPDATE_INTERVAL, LEADERBOARD_SIZE, PLAYER_AREA_OF_INTEREST_RADIUS
-)
-from . import game # game.py now contains get_player_specific_view_state
+try:
+    from .config import (
+        GAME_LOOP_DELAY, PLAYER_DEFAULT_NAME_PREFIX, SERVER_TICK_RATE,
+        LEADERBOARD_UPDATE_INTERVAL, LEADERBOARD_SIZE, PLAYER_AREA_OF_INTEREST_RADIUS
+    )
+    from . import game # game.py now contains get_player_specific_view_state
+except ImportError:
+    from config import (
+        GAME_LOOP_DELAY, PLAYER_DEFAULT_NAME_PREFIX, SERVER_TICK_RATE,
+        LEADERBOARD_UPDATE_INTERVAL, LEADERBOARD_SIZE, PLAYER_AREA_OF_INTEREST_RADIUS
+    )
+    import game # game.py now contains get_player_specific_view_state
 
 app = FastAPI()
 

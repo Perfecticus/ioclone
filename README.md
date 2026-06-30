@@ -76,6 +76,12 @@ A multiplayer browser game inspired by Agar.io, built with Python (FastAPI) for 
 -   Game configuration (speeds, masses, limits) can be found in `server/config.py`.
 -   The server employs Area of Interest (AoI) filtering (`PLAYER_AREA_OF_INTEREST_RADIUS` in `server/config.py`) to send tailored game state updates to each client, reducing the data load for entities outside a player's vicinity.
 
+## Running Tests
+From the repository root, run:
+```bash
+python -m unittest discover -s tests
+```
+
 ## Future Enhancements (Potential)
 -   More advanced server-side optimizations (e.g., quadtrees for collision detection for entity filtering).
 -   Client-side prediction for even smoother local player movement.
